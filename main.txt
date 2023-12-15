@@ -1,0 +1,296 @@
+<--with hello world-->
+from graphene import Schema,ObjectType,String
+from fastapi import FastAPI
+from starlette_graphene3 import GraphQLApp,make_playground_handler
+class Query(ObjectType):
+    hello=String(name=String(default_value="graphql"))
+    
+    @staticmethod
+    def resolve_hello(root,info,name):
+        return f"Hello {name}"
+
+schema=Schema(query=Query)
+
+app=FastAPI()
+
+app.mount("/graphql", GraphQLApp(
+    schema=schema,
+    on_get=make_playground_handler()
+))
+
+
+<--with static data-->
+from graphene import Schema,ObjectType,String,Int,List,Field
+from fastapi import FastAPI
+from starlette_graphene3 import GraphQLApp,make_playground_handler
+#static data
+employer_data=[
+    {"id":1,"name":"Ashish Agam","contact_email":"ashish@gmail.com","industry":"Teach"},
+    {"id":2,"name":"Kuldeep Lagadde","contact_email":"kuldeep@gmail.com","industry":"Finance"}
+]
+job_data=[
+    {"id":1,"title":"Software Engineer","discription":"Develop Web Applications","employe_id":1},
+    {"id":2,"title":"Data Analyst","discription":"Analyze data and create reports","employe_id":2},
+    {"id":3,"title":"Accountant","discription":"Manage financial records","employe_id":2}
+]
+class EmployerObject(ObjectType):
+    id=Int()
+    name=String()
+    contact_email=String()
+    industry=String()
+    jobs=List(lambda:JobObject)
+    
+    @staticmethod
+    def resolve_jobs(root,info):
+        return[job for job in job_data if job["employe_id"]==root["id"]]
+    
+class JobObject(ObjectType):
+    id=Int()
+    title=String()
+    discription=String()
+    employe_id=Int()
+    employer=Field(lambda:EmployerObject)
+    
+    @staticmethod
+    # iterate over employers... break
+    # list comp..[0]
+    def resolve_employer(root,info):
+        return next((employer for employer in employer_data if employer["id"]==root["employe_id"]),None)
+
+
+class Query(ObjectType):
+    jobs=List(JobObject)
+    employer=List(EmployerObject)
+    
+    @staticmethod
+    def resolve_jobs(root,info):
+        return job_data
+    
+    @staticmethod
+    def resolve_employer(root,info):
+        return employer_data
+
+schema=Schema(query=Query)
+
+app=FastAPI()
+
+app.mount("/graphql", GraphQLApp(
+    schema=schema,
+    on_get=make_playground_handler()
+))
+
+
+<--main file-->
+from graphene import Schema,ObjectType,String,Int,List,Field
+from fastapi import FastAPI
+from starlette_graphene3 import GraphQLApp,make_playground_handler
+from sqlalchemy import create_engine, URL,Column,Integer,String as saString,ForeignKey
+from sqlalchemy.orm import relationship,sessionmaker
+from sqlalchemy.ext.declarative import declarative_base
+
+
+url = URL.create(
+    drivername="postgresql",  # driver name = postgresql + the library we are using (psycopg2)
+    username='postgres',
+    password='ashish',
+    host='localhost',
+    database='jobboard',
+    port=5432
+)
+
+engine = create_engine(url) # skipped echo=True to avoid printing out all the SQL commands
+
+
+Base =declarative_base()
+
+
+
+class Employer(Base):
+    __tablename__="employers"
+
+    id=Column(Integer, primary_key=True)
+    name=Column(saString)
+    contact_email=Column(saString)
+    industry=Column(saString)
+    jobs=relationship("Job",back_populates="employer")
+
+class Job(Base):
+    __tablename__="jobs"
+    id=Column(Integer,primary_key=True)
+    title=Column(saString)
+    description=Column(saString)    
+    employer_id=Column(Integer, ForeignKey("employers.id"))
+    employer=relationship("Employer",back_populates="jobs")
+
+Session=sessionmaker(bind=engine)
+
+#static data
+employers_data = [
+    {"id": 1, "name": "MetaTechA", "contact_email": "contact@company-a.com", "industry": "Tech"},
+    {"id": 2, "name": "MoneySoftB", "contact_email": "contact@company-b.com", "industry": "Finance"},
+]
+
+jobs_data = [
+    {"id": 1, "title": "Software Engineer", "description": "Develop web applications", "employer_id": 1},
+    {"id": 2, "title": "Data Analyst", "description": "Analyze data and create reports", "employer_id": 1},
+    {"id": 3, "title": "Accountant IT", "description": "Manage financial records", "employer_id": 2},
+    {"id": 4, "title": "Plumber", "description": "Independent contractrs", "employer_id": 2},
+]
+
+def prepare_database():
+    Base.metadata.drop_all(engine)
+    Base.metadata.create_all(engine)
+    session=Session()
+    
+    for employer in employers_data:
+        emp=Employer(**employer)
+        session.add(emp)
+
+    for job in jobs_data:
+        session.add(Job(**job)) 
+
+        session.commit()
+        session.close()
+
+    
+class EmployerObject(ObjectType):
+    id =Int()
+    name=String()
+    contact_email=String()
+    industry=String()
+    jobs=List(lambda:JobObject)
+
+    @staticmethod
+    def resolve_jobs(root,info):
+        return[job for job in jobs_data if job["employer_id"]==root["id"]]
+
+class JobObject(ObjectType):
+    id=Int()
+    title=String()
+    description=String()
+    empolyer_id=Int()
+    empolyer=Field(lambda:EmployerObject)
+
+    @staticmethod
+    def resolve_emplyer(root,info):
+        #itrate over employes..... break
+        #list comp...[0]
+        return next((employer for employer in employers_data if employer["id"]==root["employer_id"]),None)
+
+class Query(ObjectType):
+    jobs=List(JobObject)
+    Employer=List(EmployerObject)
+
+    @staticmethod
+    def resolve_jobs(root,info):
+        return jobs_data
+    
+    @staticmethod
+    def resolve_Employer(root,info):
+        return employers_data
+
+schema=Schema(query=Query)
+
+app=FastAPI()
+
+@app.on_event("startup")
+def startup_event():
+    prepare_database()
+
+app.mount("/graphql", GraphQLApp(
+    schema=schema,
+    on_get=make_playground_handler()
+))
+
+<--Add mutation on GraphQLApp-->
+mutation{
+  addJob(
+    title:"some futuristic role"
+    description:"workin with code"
+    employerId:1
+  ){
+    job{
+      id
+    }
+  }
+}
+
+<--Update mutation on GraphQLApp-->
+mutation{
+  updateJob(
+    jobId:6
+    title:"A new update job title"
+    description:"Fancy new desc"
+    employerId:2
+  ){
+    job{
+      id
+      employerId
+    }
+  }
+}
+<--Update-->
+mutation{
+  updateJob(
+    jobId:1
+    title:"A New update job title"
+  ){
+    job{
+      id
+      employerId
+      description
+      title
+    }
+  }
+}
+<--find id-->
+query{
+  job(id:2){
+    id
+    description
+    employer{
+      id
+      name
+      industry
+    }
+  }
+}
+
+<--Delete-->
+mutation{
+  deleteJob(id:2){
+    success
+  }
+}
+
+<--add Employer-->
+mutation{
+  addEmployer(
+    name:"CME Group"
+    contactEmail:"contact@cmegroup.com"
+    industry:"Financial Services"
+  ){
+    employer{
+      id
+      name
+      contactEmail
+      industry
+    }
+  }
+}
+
+<--config-->
+from sqlalchemy import URL
+
+url = URL.create(
+    drivername="postgresql",  # driver name = postgresql + the library we are using (psycopg2)
+    username='postgres',
+    password='ashish',
+    host='localhost',
+    database='jobboard',
+    port=5432
+)
+
+SECRET_KEY="job_board_app_secret!"
+ALGORITHM="HS256"
+TOKEN_EXPIRATION_TIME_MINUTES=15
