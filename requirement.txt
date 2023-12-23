@@ -1,0 +1,7 @@
+graphene==3.2.2
+fastapi==0.95.1
+starlette-graphene3==0.6.0
+uvicorn==0.21.1
+sqlalchemy==2.0.11
+psycopg==3.1.8
+psycopg2
